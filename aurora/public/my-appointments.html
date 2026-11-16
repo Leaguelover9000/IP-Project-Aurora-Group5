@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My Appointments - Aurora</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="nav"></div>
+  <main class="container">
+    <h1>My Appointments</h1>
+    <p class="subtitle">Your booked, past and cancelled appointments.</p>
+    <div id="msg"></div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Date</th><th>Time</th><th>Dentist</th><th>Service</th><th>Price</th><th>Status</th><th></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="empty" hidden>You have no appointments yet. <a href="book.html">Book one now</a>.</div>
+    </div>
+  </main>
+
+  <script src="js/app.js"></script>
+  <script>
+    const user = initPage(['patient']);
+    if (user) load().catch(showError);
+
+    async function load() {
+      const rows = await api('GET', '/appointments/me');
+      document.getElementById('empty').hidden = rows.length > 0;
+      document.getElementById('rows').innerHTML = rows.map((a) => `
+        <tr>
+          <td>${fmtDate(a.schedule_date)}</td>
+          <td>${fmtRange(a.start_time, a.end_time)}</td>
+          <td>${esc(a.doctor_name)}</td>
+          <td>${esc(a.service_name)}</td>
+          <td>${peso(a.price)}</td>
+          <td>${badge(a.status)}</td>
+          <td class="actions">${['Pending', 'Confirmed'].includes(a.status)
+            ? `<button class="btn btn-sm btn-danger" onclick="cancelAppt(${a.appointment_id})">Cancel</button>` : ''}</td>
+        </tr>`).join('');
+    }
+
+    async function cancelAppt(id) {
+      if (!confirm('Cancel this appointment?')) return;
+      try {
+        await api('PATCH', `/appointments/${id}/cancel`);
+        showMsg('Appointment cancelled.');
+        await load();
+      } catch (err) { showError(err); }
+    }
+  </script>
+</body>
+</html>

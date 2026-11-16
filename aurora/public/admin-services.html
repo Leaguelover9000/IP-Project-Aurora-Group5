@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manage Services - Aurora</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="nav"></div>
+  <main class="container">
+    <h1>Services</h1>
+    <p class="subtitle">The dental services patients can choose when booking.</p>
+    <div id="msg"></div>
+
+    <div class="card">
+      <h2 id="form-title">Add service</h2>
+      <form id="form" class="row">
+        <div class="field"><label>Service name</label><input id="name" required></div>
+        <div class="field"><label>Duration (minutes)</label><input type="number" id="duration" min="5" max="480" value="30" required></div>
+        <div class="field"><label>Price (PHP)</label><input type="number" id="price" min="0" step="0.01" required></div>
+        <button class="btn btn-primary" id="save-btn">Add service</button>
+        <button type="button" class="btn" id="cancel-btn" hidden>Cancel edit</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Service</th><th>Duration</th><th>Price</th><th></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="empty" hidden>No services yet.</div>
+    </div>
+  </main>
+
+  <script src="js/app.js"></script>
+  <script>
+    const user = initPage(['admin']);
+    const $ = (id) => document.getElementById(id);
+    let services = [];
+    let editingId = null;
+
+    async function load() {
+      services = await api('GET', '/services');
+      $('empty').hidden = services.length > 0;
+      $('rows').innerHTML = services.map((s) => `
+        <tr>
+          <td>${esc(s.name)}</td><td>${s.duration_minutes} min</td><td>${peso(s.price)}</td>
+          <td class="actions">
+            <button class="btn btn-sm" onclick="startEdit(${s.service_id})">Edit</button>
+            <button class="btn btn-sm btn-danger" onclick="remove(${s.service_id})">Delete</button>
+          </td>
+        </tr>`).join('');
+    }
+
+    function startEdit(id) {
+      const s = services.find((x) => x.service_id === id);
+      editingId = id;
+      $('name').value = s.name;
+      $('duration').value = s.duration_minutes;
+      $('price').value = s.price;
+      $('form-title').textContent = 'Edit service';
+      $('save-btn').textContent = 'Save changes';
+      $('cancel-btn').hidden = false;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function resetForm() {
+      editingId = null;
+      $('form').reset();
+      $('form-title').textContent = 'Add service';
+      $('save-btn').textContent = 'Add service';
+      $('cancel-btn').hidden = true;
+    }
+
+    async function remove(id) {
+      if (!confirm('Delete this service?')) return;
+      try {
+        await api('DELETE', `/services/${id}`);
+        showMsg('Service deleted.');
+        if (editingId === id) resetForm();
+        await load();
+      } catch (err) { showError(err); }
+    }
+
+    if (user) {
+      $('cancel-btn').addEventListener('click', resetForm);
+      $('form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const body = {
+          name: $('name').value,
+          duration_minutes: Number($('duration').value),
+          price: Number($('price').value),
+        };
+        try {
+          if (editingId) await api('PUT', `/services/${editingId}`, body);
+          else await api('POST', '/services', body);
+          showMsg(editingId ? 'Service updated.' : 'Service added.');
+          resetForm();
+          await load();
+        } catch (err) { showError(err); }
+      });
+      load().catch(showError);
+    }
+  </script>
+</body>
+</html>

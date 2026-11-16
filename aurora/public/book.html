@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Book Appointment - Aurora</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="nav"></div>
+  <main class="container">
+    <h1 id="title">Book an Appointment</h1>
+    <p class="subtitle">Pick a dentist, choose a date, then pick one of the open time slots.</p>
+    <div id="msg"></div>
+
+    <div class="card">
+      <h2>1. Choose dentist and service</h2>
+      <div class="row">
+        <div class="field" id="patient-field" hidden>
+          <label>Patient</label>
+          <select id="patient"></select>
+          <span class="hint">New patient? <a href="admin-patients.html">Add one here</a>.</span>
+        </div>
+        <div class="field"><label>Dentist</label><select id="dentist"></select></div>
+        <div class="field"><label>Service</label><select id="service"></select></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. Choose a date</h2>
+      <div class="field" style="max-width:240px">
+        <label>Date</label>
+        <input type="date" id="date">
+      </div>
+      <div class="hint" style="margin-bottom:6px">Dates with open slots (click one):</div>
+      <div class="chips" id="date-chips"></div>
+    </div>
+
+    <div class="card">
+      <h2>3. Choose a time</h2>
+      <div class="slots" id="slots"></div>
+      <div class="summary" id="summary" hidden></div>
+      <button class="btn btn-primary" id="book-btn" disabled>Book appointment</button>
+    </div>
+  </main>
+
+  <script src="js/app.js"></script>
+  <script>
+    const user = initPage(['patient', 'admin']);
+
+    let dentists = [], services = [], selectedSlot = null, currentSlots = [];
+    const $ = (id) => document.getElementById(id);
+
+    async function main() {
+      const isAdmin = user.role === 'admin';
+      if (isAdmin) {
+        $('title').textContent = 'Book for a Patient';
+        $('patient-field').hidden = false;
+        const patients = await api('GET', '/patients');
+        $('patient').innerHTML = patients.length
+          ? patients.map((p) => `<option value="${p.user_id}">${esc(p.name)} (${esc(p.email)})</option>`).join('')
+          : '<option value="">No patients yet</option>';
+        $('patient').addEventListener('change', updateSummary);
+      }
+
+      [dentists, services] = await Promise.all([api('GET', '/dentists'), api('GET', '/services')]);
+      $('dentist').innerHTML = dentists
+        .map((d) => `<option value="${d.dentist_id}">${esc(d.name)} - ${esc(d.specialization)}</option>`).join('');
+      $('service').innerHTML = services
+        .map((s) => `<option value="${s.service_id}">${esc(s.name)} (${peso(s.price)})</option>`).join('');
+
+      // ?dentist=2 in the address preselects a dentist
+      const wanted = new URLSearchParams(location.search).get('dentist');
+      if (wanted) $('dentist').value = wanted;
+
+      $('date').min = dateStr(0);
+      $('dentist').addEventListener('change', () => loadDates(true));
+      $('service').addEventListener('change', updateSummary);
+      $('date').addEventListener('change', () => loadSlots());
+      $('book-btn').addEventListener('click', book);
+      await loadDates(true);
+    }
+
+    // show the dates where this dentist still has open slots
+    async function loadDates(pickFirst) {
+      const dentistId = $('dentist').value;
+      if (!dentistId) return;
+      const all = await api('GET', `/dentists/${dentistId}/schedule`);
+      const dates = [...new Set(all.map((s) => s.schedule_date))].slice(0, 10);
+
+      $('date-chips').innerHTML = dates.length
+        ? dates.map((d) => `<button type="button" class="chip" data-date="${d}">${fmtDate(d)}</button>`).join('')
+        : '<span class="hint">This dentist has no open slots right now.</span>';
+      document.querySelectorAll('#date-chips .chip').forEach((chip) =>
+        chip.addEventListener('click', () => { $('date').value = chip.dataset.date; loadSlots(); }));
+
+      if (pickFirst) $('date').value = dates[0] || '';
+      await loadSlots();
+    }
+
+    // show the open slots for the chosen dentist and date
+    async function loadSlots() {
+      selectedSlot = null;
+      updateSummary();
+      const dentistId = $('dentist').value;
+      const date = $('date').value;
+      document.querySelectorAll('#date-chips .chip').forEach((c) =>
+        c.classList.toggle('selected', c.dataset.date === date));
+
+      if (!dentistId || !date) {
+        $('slots').innerHTML = '<span class="hint">Pick a dentist and a date to see the open times.</span>';
+        return;
+      }
+      currentSlots = await api('GET', `/dentists/${dentistId}/schedule?date=${date}`);
+      $('slots').innerHTML = currentSlots.length
+        ? currentSlots.map((s) =>
+            `<button type="button" class="slot" data-id="${s.schedule_id}">${fmtRange(s.start_time, s.end_time)}</button>`).join('')
+        : '<span class="hint">No open slots on this date. Try another date.</span>';
+      document.querySelectorAll('#slots .slot').forEach((btn) =>
+        btn.addEventListener('click', () => {
+          selectedSlot = currentSlots.find((s) => s.schedule_id === Number(btn.dataset.id));
+          document.querySelectorAll('#slots .slot').forEach((b) => b.classList.toggle('selected', b === btn));
+          updateSummary();
+        }));
+    }
+
+    function updateSummary() {
+      const box = $('summary');
+      const btn = $('book-btn');
+      const needsPatient = user.role === 'admin';
+      if (!selectedSlot) { box.hidden = true; btn.disabled = true; return; }
+      const service = services.find((s) => s.service_id === Number($('service').value));
+      box.hidden = false;
+      box.innerHTML = `<strong>${esc(selectedSlot.doctor_name)}</strong> on ${fmtDate(selectedSlot.schedule_date)},
+        ${fmtRange(selectedSlot.start_time, selectedSlot.end_time)}
+        ${service ? ` &middot; ${esc(service.name)} (${peso(service.price)})` : ''}`;
+      btn.disabled = !service || (needsPatient && !$('patient').value);
+    }
+
+    async function book() {
+      $('book-btn').disabled = true;
+      try {
+        const body = { schedule_id: selectedSlot.schedule_id, service_id: Number($('service').value) };
+        if (user.role === 'admin') body.patient_id = Number($('patient').value);
+        await api('POST', '/appointments', body);
+        showMsg('Appointment booked! Status: Pending until the dentist confirms.');
+        await loadDates(false); // refresh: the booked slot is no longer open
+      } catch (err) {
+        showError(err);
+        await loadDates(false); // maybe somebody else took it first
+      }
+    }
+
+    if (user) main().catch(showError);
+  </script>
+</body>
+</html>

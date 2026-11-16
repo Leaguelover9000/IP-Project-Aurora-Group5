@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Patients - Aurora</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="nav"></div>
+  <main class="container">
+    <h1>Patients</h1>
+    <p class="subtitle">Add an account for walk-in or phone-in patients so you can book for them.</p>
+    <div id="msg"></div>
+
+    <div class="card">
+      <h2>Add patient</h2>
+      <form id="form" class="row">
+        <div class="field"><label>Full name</label><input id="name" required></div>
+        <div class="field"><label>Email</label><input type="email" id="email" required></div>
+        <div class="field"><label>Phone</label><input id="phone"></div>
+        <div class="field"><label>Password</label><input type="password" id="password" minlength="6" required></div>
+        <button class="btn btn-primary">Add patient</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>All patients</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="empty" hidden>No patients yet.</div>
+    </div>
+  </main>
+
+  <script src="js/app.js"></script>
+  <script>
+    const user = initPage(['admin']);
+    const $ = (id) => document.getElementById(id);
+
+    async function load() {
+      const rows = await api('GET', '/patients');
+      $('empty').hidden = rows.length > 0;
+      $('rows').innerHTML = rows.map((p) => `
+        <tr>
+          <td>${esc(p.name)}</td><td>${esc(p.email)}</td><td>${esc(p.phone || '-')}</td>
+          <td class="actions"><a class="btn btn-sm" href="book.html">Book</a></td>
+        </tr>`).join('');
+    }
+
+    if (user) {
+      $('form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          await api('POST', '/patients', {
+            name: $('name').value, email: $('email').value,
+            phone: $('phone').value, password: $('password').value,
+          });
+          e.target.reset();
+          showMsg('Patient added.');
+          await load();
+        } catch (err) { showError(err); }
+      });
+      load().catch(showError);
+    }
+  </script>
+</body>
+</html>
